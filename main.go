@@ -1,11 +1,13 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt" // пакет для форматированного ввода вывода
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	_ "github.com/mattn/go-sqlite3"
 	"html/template"
 	"io"
 	"log"      // пакет для логирования
@@ -115,8 +117,43 @@ func createWebServer() {
 	log.Fatal(srv.ListenAndServe())
 }
 
+type Kitten struct {
+	KittenId    int
+	Name        string
+	Description string
+	Modified    string
+}
+
+type KittenImg struct {
+	KittenImgId int
+	KittenId    int
+	Url         string
+	Modified    string
+}
+
+type KittenTask struct {
+	KittenTaskId int
+	Status       int
+	Data         string
+	Modified     string
+}
+
+func createConnectionToDb() {
+	db, err := sql.Open("sqlite3", "storage/identifier.sqlite")
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	rows, err := db.Query("select * from kitten")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(rows)
+}
+
 func main() {
 	go createWebServer()
 	go createWebSocketServer()
+	createConnectionToDb()
 	select {}
 }
