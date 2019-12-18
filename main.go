@@ -61,6 +61,9 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 	io.Copy(f, file)
 
 	fmt.Fprintln(w, string(data))
+}
+
+func ApiGetKittens() {
 
 }
 
@@ -138,22 +141,68 @@ type KittenTask struct {
 	Modified     string
 }
 
-func createConnectionToDb() {
+func getConnectionToDb() (db *sql.DB) {
 	db, err := sql.Open("sqlite3", "storage/identifier.sqlite")
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
-	rows, err := db.Query("select * from kitten")
+	return
+}
+
+type KittensCatalogJsonResponse struct {
+	Kittens []KittenView `json:"kittens"`
+}
+
+type KittenView struct {
+	Id          int              `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Imgs        []*KittenImgView `json:"imgs"`
+}
+
+type KittenImgView struct {
+	Url string `json:"url"`
+}
+
+func getKittensCatalog() (kittens []*KittenView) {
+	db := getConnectionToDb()
+
+	rows, err := db.Query("select kitten.kitten_id,kitten.name,kitten.description,kitten_img.url from kitten LEFT JOIN kitten_img ON kitten_img.kitten_id = kitten.kitten_id")
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(rows)
+
+	kittensMap := map[int]*KittenView{}
+
+	for rows.Next() {
+		kitten := &KittenView{}
+		kittenImg := &KittenImgView{}
+		err := rows.Scan(&kitten.Id, &kitten.Name, &kitten.Description, &kittenImg.Url)
+		if err != nil {
+			panic(err)
+		}
+
+		if _, ok := kittensMap[kitten.Id]; !ok {
+			kitten.Imgs = []*KittenImgView{kittenImg}
+			kittensMap[kitten.Id] = kitten
+		} else {
+			kitten = kittensMap[kitten.Id]
+			kitten.Imgs = append(kitten.Imgs, kittenImg)
+			kittensMap[kitten.Id] = kitten
+			continue
+		}
+
+		kittens = append(kittens, kitten)
+	}
+	defer db.Close()
+	return
 }
 
 func main() {
 	go createWebServer()
 	go createWebSocketServer()
-	createConnectionToDb()
+	catalog := getKittensCatalog()
+	fmt.Println(catalog)
+
 	select {}
 }
