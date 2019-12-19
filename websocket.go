@@ -36,7 +36,7 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func createWebSocketServer() {
+func runWebSocketServer() {
 	router := mux.NewRouter()
 	router.HandleFunc("/", WebSocketHandler)
 	log.Fatal(http.ListenAndServe(*addr, router))

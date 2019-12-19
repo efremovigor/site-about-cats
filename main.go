@@ -18,7 +18,8 @@ const storagePath = "storage" + pathSeparator
 const storageTmpFilePath = storagePath + "tmp" + pathSeparator
 
 func main() {
-	go createWebServer()
-	go createWebSocketServer()
+	go runWebServer()
+	go runWebSocketServer()
+	go runKittenQueue()
 	select {}
 }

@@ -5,21 +5,21 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type Kitten struct {
+type KittenDb struct {
 	KittenId    int
 	Name        string
 	Description string
 	Modified    string
 }
 
-type KittenImg struct {
+type KittenImgDb struct {
 	KittenImgId int
 	KittenId    int
 	Url         string
 	Modified    string
 }
 
-type KittenTask struct {
+type KittenTaskDb struct {
 	KittenTaskId int
 	Status       int
 	Data         string
@@ -44,6 +44,10 @@ type KittenView struct {
 type KittenImgView struct {
 	Url string `json:"url"`
 }
+
+//func saveKitten()  {
+//
+//}
 
 func getKittensCatalog() (kittens []*KittenView) {
 	db := getConnectionToDb()

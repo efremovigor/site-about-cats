@@ -13,8 +13,9 @@ import (
 )
 
 type JsonResponse struct {
-	Ok   bool   `json:"ok"`
-	Name string `json:"name"`
+	Ok          bool   `json:"ok"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type KittensCatalogJsonResponse struct {
@@ -30,7 +31,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
 func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	data, _ := json.Marshal(JsonResponse{Ok: true, Name: r.PostFormValue("name")})
+	name := r.PostFormValue("name")
+	description := r.PostFormValue("description")
+
+	kittenChan <- KittenTaskQueue{3, name}
+	data, _ := json.Marshal(JsonResponse{Ok: true, Name: name, Description: description})
 
 	file, fileHeaders, err := r.FormFile("fileupload")
 	if err != nil {
@@ -48,17 +53,21 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 
 	io.Copy(f, file)
 
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
 	fmt.Fprintln(w, string(data))
 }
 
 func ApiGetKittens(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	data, _ := json.Marshal(KittensCatalogJsonResponse{Kittens: getKittensCatalog()})
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
 	fmt.Fprintln(w, string(data))
 
 }
 
-func createWebServer() {
+func runWebServer() {
 	router := mux.NewRouter()
 	router.HandleFunc("/", IndexHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/topic/send", ApiTopicSender).Methods(http.MethodPost)
