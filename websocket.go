@@ -16,24 +16,45 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
 	}
-	c, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Print("upgrade:", err)
-		return
-	}
-	defer c.Close()
-	for {
+	conn, err := upgrader.Upgrade(w, r, nil)
 
-		mt, message, err := c.ReadMessage()
+	go func(conn *websocket.Conn) {
+		readChan := make(chan []byte)
+		closeConnect := make(chan int)
 		if err != nil {
-			break
+			log.Print("upgrade:", err)
+			return
+		}
+		go func(conn *websocket.Conn) {
+			for {
+				_, message, err := conn.ReadMessage()
+				if err != nil {
+					closeConnect <- 0
+					break
+				}
+				readChan <- message
+			}
+		}(conn)
+
+		go func(conn *websocket.Conn) {
+			for {
+				err := conn.WriteMessage(1, <-readChan)
+				if err != nil {
+					closeConnect <- 0
+					break
+				}
+			}
+		}(conn)
+		for {
+			select {
+			case <-closeConnect:
+				defer conn.Close()
+				break
+			}
 		}
 
-		err = c.WriteMessage(mt, message)
-		if err != nil {
-			break
-		}
-	}
+	}(conn)
+
 }
 
 func runWebSocketServer() {
