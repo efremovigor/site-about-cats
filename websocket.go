@@ -10,51 +10,85 @@ import (
 
 var addr = flag.String("addr", socketWebSocket, "http service address")
 
-var upgrader = websocket.Upgrader{} // use default options
+var generalChan = make(chan []byte)
+
+var upgrader = websocket.Upgrader{}
+var connections = make(map[int]*connectionReceiver)
+
+type connectionReceiver struct {
+	conn         *websocket.Conn
+	readChan     chan []byte
+	writeChan    chan []byte
+	closeConnect chan int
+}
 
 func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
+	receiver := &connectionReceiver{conn: conn, readChan: make(chan []byte), writeChan: make(chan []byte), closeConnect: make(chan int)}
+	connectionId := len(connections)
+	connections[connectionId] = receiver
 
-	go func(conn *websocket.Conn) {
-		readChan := make(chan []byte)
-		closeConnect := make(chan int)
+	go func(connectionId int) {
+
 		if err != nil {
 			log.Print("upgrade:", err)
 			return
 		}
-		go func(conn *websocket.Conn) {
+		go func(receiver *connectionReceiver) {
 			for {
 				_, message, err := conn.ReadMessage()
 				if err != nil {
-					closeConnect <- 0
+					receiver.closeConnect <- 0
 					break
 				}
-				readChan <- message
+				if string(message) == "general" {
+					generalChan <- []byte("General hello message")
+					continue
+				}
+				receiver.readChan <- message
 			}
-		}(conn)
+		}(receiver)
 
-		go func(conn *websocket.Conn) {
+		go func(receiver *connectionReceiver) {
 			for {
-				err := conn.WriteMessage(1, <-readChan)
+				err := conn.WriteMessage(1, <-receiver.readChan)
 				if err != nil {
-					closeConnect <- 0
+					receiver.closeConnect <- 0
 					break
 				}
 			}
-		}(conn)
+		}(receiver)
+
 		for {
 			select {
-			case <-closeConnect:
+			case <-receiver.closeConnect:
 				defer conn.Close()
 				break
 			}
 		}
 
-	}(conn)
+	}(connectionId)
 
+}
+
+func runWebSocketProcess() {
+	go runWebSocketServer()
+	for {
+		select {
+		case message := <-generalChan:
+			for key, receiver := range connections {
+				err := receiver.conn.WriteMessage(1, message)
+				if err != nil {
+					receiver.closeConnect <- 0
+					delete(connections, key)
+					continue
+				}
+			}
+		}
+	}
 }
 
 func runWebSocketServer() {

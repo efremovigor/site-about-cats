@@ -19,7 +19,7 @@ const storageTmpFilePath = storagePath + "tmp" + pathSeparator
 
 func main() {
 	go runWebServer()
-	go runWebSocketServer()
+	go runWebSocketProcess()
 	go runKittenQueue()
 	select {}
 }
