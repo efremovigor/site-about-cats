@@ -4,6 +4,14 @@
 console.log('js-loaded');
 
 $( document ).ready(function() {
+    $.ajax({
+        dataType: "json",
+        url: "/api/catalog",
+        // data: data,
+        success: function (data){
+            console.log(data)
+        }
+    });
     $( "#form-send-kitten" ).submit(function( event ) {
         // console.log( "Handler for .submit() called." );
         // event.preventDefault();

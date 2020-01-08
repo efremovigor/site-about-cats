@@ -33,7 +33,6 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	name := r.PostFormValue("name")
 	description := r.PostFormValue("description")
-
 	kittenChan <- KittenTaskQueue{3, name}
 	data, _ := json.Marshal(JsonResponse{Ok: true, Name: name, Description: description})
 
@@ -50,6 +49,8 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	defer f.Close()
+	createKittenTask(name, description, []string{fileHeaders.Filename})
+	fmt.Print(getNewKittenTasks())
 
 	io.Copy(f, file)
 

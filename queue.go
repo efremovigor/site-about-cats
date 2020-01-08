@@ -6,6 +6,10 @@ import (
 
 var kittenChan = make(chan KittenTaskQueue)
 
+const statusNew = 1
+const statusInProgress = 2
+const statusDone = 3
+
 type KittenTaskQueue struct {
 	Id  int
 	Img string
