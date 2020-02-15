@@ -12,10 +12,13 @@ import (
 	"os"
 )
 
-type JsonResponse struct {
-	Ok          bool   `json:"ok"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+type JsonSenderTopicResponse struct {
+	Ok   bool                        `json:"ok"`
+	Data JsonSenderTopicResponseData `json:"data"`
+}
+
+type JsonSenderTopicResponseData struct {
+	TaskId int64 `json:"taskId"`
 }
 
 type KittensCatalogJsonResponse struct {
@@ -30,11 +33,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
 	name := r.PostFormValue("name")
 	description := r.PostFormValue("description")
-	kittenChan <- KittenTaskQueue{3, name}
-	data, _ := json.Marshal(JsonResponse{Ok: true, Name: name, Description: description})
 
 	file, fileHeaders, err := r.FormFile("fileupload")
 	if err != nil {
@@ -49,11 +49,13 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 		log.Fatal(err)
 	}
 	defer f.Close()
-	createKittenTask(name, description, []string{fileHeaders.Filename})
-	fmt.Print(getNewKittenTasks())
-
 	io.Copy(f, file)
 
+	id, err := createKittenTask(name, description, []string{fileHeaders.Filename})
+	logChannel <- LogChannel{Message: fmt.Sprintf("New kitten topic with id: %d, name:%s, desc:%s ", id, name, description)}
+
+	data, _ := json.Marshal(JsonSenderTopicResponse{Ok: true, Data: JsonSenderTopicResponseData{TaskId: id}})
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
 	fmt.Fprintln(w, string(data))

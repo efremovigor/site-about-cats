@@ -16,10 +16,11 @@ const publicPath = "public" + pathSeparator
 const templatePath = publicPath + "templates" + pathSeparator
 const storagePath = "storage" + pathSeparator
 const storageTmpFilePath = storagePath + "tmp" + pathSeparator
+const kittenImgPath = publicPath + "img" + pathSeparator + "img/kittens" + pathSeparator
 
 func main() {
 	go runWebServer()
 	go runWebSocketProcess()
-	go runKittenQueue()
+	go LoggerHandle()
 	select {}
 }

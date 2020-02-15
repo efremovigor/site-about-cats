@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	_ "github.com/mattn/go-sqlite3"
 	"time"
 )
@@ -71,29 +72,23 @@ type KittenImgView struct {
 	Url string `json:"url"`
 }
 
-func createKittenTask(name string, desc string, imgs []string) {
+func createKittenTask(name string, desc string, imgs []string) (int64, error) {
 	db := getConnectionToDb()
 	defer db.Close()
-	_, err := db.Exec("INSERT INTO kitten_task (status, data,modified,created)	VALUES ($1, $2, $3, $4)", statusNew, KittenTaskDbData{Name: name, Description: desc, Imgs: imgs}, time.Now(), time.Now())
+	res, err := db.Exec("INSERT INTO kitten_task (status, data,modified,created)	VALUES ($1, $2, $3, $4)", statusNew, KittenTaskDbData{Name: name, Description: desc, Imgs: imgs}, time.Now(), time.Now())
 	if err != nil {
 		panic(err)
 	}
+	return res.LastInsertId()
 }
 
-func getNewKittenTasks() []KittenTaskDb {
+func getKittenTasks(count int, status int) []KittenTaskDb {
 	db := getConnectionToDb()
 	defer db.Close()
-	transaction, err := db.Begin()
+	rows, err := db.Query("SELECT kitten_task_id, data FROM kitten_task WHERE status = $1 LIMIT 3 FOR UPDATE", count, status)
 	if err != nil {
-		transaction.Rollback()
 		panic(err)
 	}
-	rows, err := transaction.Query("SELECT kitten_task_id, data FROM kitten_task WHERE status = $1 LIMIT 3", statusNew)
-	if err != nil {
-		transaction.Rollback()
-		panic(err)
-	}
-	transaction.Commit()
 
 	for rows.Next() {
 		task := new(KittenTaskDb)
@@ -103,11 +98,21 @@ func getNewKittenTasks() []KittenTaskDb {
 	return []KittenTaskDb{}
 }
 
+func updateKittenTask(task KittenTaskDb) {
+	db := getConnectionToDb()
+	defer db.Close()
+	res, err := db.Exec("UPDATE kitten_task SET status=$1, data=$2, modified=$3 where kitten_task_id = $4", task.Status, task.Data, time.Now(), task.KittenTaskId)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(res)
+}
+
 func getKittensCatalog() (kittens []*KittenView) {
 	db := getConnectionToDb()
 	defer db.Close()
 
-	rows, err := db.Query("select kitten.kitten_id,kitten.name,kitten.description,kitten_img.url from kitten LEFT JOIN kitten_img ON kitten_img.kitten_id = kitten.kitten_id")
+	rows, err := db.Query("SELECT kitten.kitten_id,kitten.name,kitten.description,kitten_img.url FROM kitten LEFT JOIN kitten_img ON kitten_img.kitten_id = kitten.kitten_id")
 	if err != nil {
 		panic(err)
 	}
@@ -135,4 +140,21 @@ func getKittensCatalog() (kittens []*KittenView) {
 		kittens = append(kittens, kitten)
 	}
 	return
+}
+
+func createKitten(kitten KittenDb, img []KittenImgDb) {
+	db := getConnectionToDb()
+	defer db.Close()
+	transaction, err := db.Begin()
+	if err != nil {
+		transaction.Rollback()
+		panic(err)
+	}
+	res, err := db.Exec("INSERT INTO kitten (kitten_id, name,description ,modified,created)	VALUES ($1, $2, $3, $4)", kitten.KittenId, kitten.Name, kitten.Description, time.Now(), time.Now())
+
+	if err != nil {
+		transaction.Rollback()
+		panic(err)
+	}
+	transaction.Commit()
 }

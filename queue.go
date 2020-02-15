@@ -4,28 +4,21 @@ import (
 	"fmt"
 )
 
-var kittenChan = make(chan KittenTaskQueue)
+var logChannel = make(chan LogChannel, 10)
 
-const statusNew = 1
-const statusInProgress = 2
-const statusDone = 3
-
-type KittenTaskQueue struct {
-	Id  int
-	Img string
+type LogChannel struct {
+	Message string
 }
 
-func runKittenQueue() {
+func LoggerHandle() {
 	for {
 		select {
-		case task := <-kittenChan:
-			kittenTaskProcess(&task)
-			return
+		case task := <-logChannel:
+			senLog(&task)
 		}
 	}
 }
 
-func kittenTaskProcess(task *KittenTaskQueue) {
-	fmt.Println(task)
-	fmt.Println(task)
+func senLog(task *LogChannel) {
+	fmt.Println(task.Message)
 }
