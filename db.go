@@ -37,9 +37,9 @@ type KittenTaskDbData struct {
 	Imgs        []string `json:"imgs"`
 }
 
-func (k KittenTaskDbData) Value() (driver.Value, error) {
-	if &k != nil {
-		b, err := json.Marshal(k)
+func (data KittenTaskDbData) Value() (driver.Value, error) {
+	if &data != nil {
+		b, err := json.Marshal(data)
 		if err != nil {
 			return nil, err
 		}
@@ -49,14 +49,21 @@ func (k KittenTaskDbData) Value() (driver.Value, error) {
 }
 
 // Scan implements the sql.Scanner interface
-func (r KittenTaskDbData) Scan(src interface{}) error {
+func (data *KittenTaskDbData) Scan(src interface{}) error {
+	if src != nil {
+		err := json.Unmarshal([]byte(src.(string)), &data)
+		if err != nil {
+			panic(err)
+		}
+
+	}
 	return nil
 }
 
 func getConnectionToDb() (db *sql.DB) {
 	db, err := sql.Open("sqlite3", "storage/identifier.sqlite")
 	if err != nil {
-		panic(err)
+		logChannel <- LogChannel{Message: err.Error()}
 	}
 	return
 }
@@ -77,25 +84,26 @@ func createKittenTask(name string, desc string, imgs []string) (int64, error) {
 	defer db.Close()
 	res, err := db.Exec("INSERT INTO kitten_task (status, data,modified,created)	VALUES ($1, $2, $3, $4)", statusNew, KittenTaskDbData{Name: name, Description: desc, Imgs: imgs}, time.Now(), time.Now())
 	if err != nil {
-		panic(err)
+		logChannel <- LogChannel{Message: err.Error()}
 	}
 	return res.LastInsertId()
 }
 
-func getKittenTasks(count int, status int) []KittenTaskDb {
+func GetKittenTasks(count int, status int) []KittenTaskDb {
 	db := getConnectionToDb()
 	defer db.Close()
-	rows, err := db.Query("SELECT kitten_task_id, data FROM kitten_task WHERE status = $1 LIMIT 3 FOR UPDATE", count, status)
+	rows, err := db.Query("SELECT kitten_task_id,status, data FROM kitten_task WHERE status = $1 LIMIT $2", status, count)
+	defer rows.Close()
 	if err != nil {
-		panic(err)
+		logChannel <- LogChannel{Message: err.Error()}
 	}
-
+	var tasks []KittenTaskDb
 	for rows.Next() {
-		task := new(KittenTaskDb)
-		err = rows.Scan(&task.KittenTaskId, &task.Data)
-		return []KittenTaskDb{*task}
+		task := &KittenTaskDb{}
+		err = rows.Scan(&task.KittenTaskId, &task.Status, &task.Data)
+		tasks = append(tasks, *task)
 	}
-	return []KittenTaskDb{}
+	return tasks
 }
 
 func updateKittenTask(task KittenTaskDb) {
@@ -103,7 +111,7 @@ func updateKittenTask(task KittenTaskDb) {
 	defer db.Close()
 	res, err := db.Exec("UPDATE kitten_task SET status=$1, data=$2, modified=$3 where kitten_task_id = $4", task.Status, task.Data, time.Now(), task.KittenTaskId)
 	if err != nil {
-		panic(err)
+		logChannel <- LogChannel{Message: err.Error()}
 	}
 	fmt.Println(res)
 }
@@ -114,7 +122,7 @@ func getKittensCatalog() (kittens []*KittenView) {
 
 	rows, err := db.Query("SELECT kitten.kitten_id,kitten.name,kitten.description,kitten_img.url FROM kitten LEFT JOIN kitten_img ON kitten_img.kitten_id = kitten.kitten_id")
 	if err != nil {
-		panic(err)
+		logChannel <- LogChannel{Message: err.Error()}
 	}
 
 	kittensMap := map[int]*KittenView{}
@@ -142,19 +150,40 @@ func getKittensCatalog() (kittens []*KittenView) {
 	return
 }
 
-func createKitten(kitten KittenDb, img []KittenImgDb) {
+func createKitten(kitten *KittenDb, imgs []KittenImgDb) {
 	db := getConnectionToDb()
 	defer db.Close()
 	transaction, err := db.Begin()
 	if err != nil {
-		transaction.Rollback()
-		panic(err)
+		rollback(transaction, LogChannel{Message: "Error creating transaction"})
+		return
 	}
-	res, err := db.Exec("INSERT INTO kitten (kitten_id, name,description ,modified,created)	VALUES ($1, $2, $3, $4)", kitten.KittenId, kitten.Name, kitten.Description, time.Now(), time.Now())
-
+	res, err := db.Exec("INSERT INTO kitten (name,description ,modified,created)	VALUES ($1, $2, $3, $4)", kitten.Name, kitten.Description, time.Now(), time.Now())
 	if err != nil {
-		transaction.Rollback()
-		panic(err)
+		rollback(transaction, LogChannel{Message: err.Error()})
+		return
 	}
-	transaction.Commit()
+	id, err := res.LastInsertId()
+	if err != nil {
+		rollback(transaction, LogChannel{Message: err.Error()})
+		return
+	}
+	kitten.KittenId = int(id)
+
+	for _, img := range imgs {
+		if _, err := db.Exec("INSERT INTO kitten_img (kitten_id, url ,modified,created)	VALUES ($1, $2, $3, $4)", kitten.KittenId, img.Url, time.Now(), time.Now()); err != nil {
+			rollback(transaction, LogChannel{Message: err.Error()})
+			return
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		rollback(transaction, LogChannel{Message: err.Error()})
+	}
+}
+
+func rollback(transaction *sql.Tx, log LogChannel) {
+	logChannel <- log
+	if err := transaction.Rollback(); err != nil {
+		logChannel <- LogChannel{Message: err.Error()}
+	}
 }
