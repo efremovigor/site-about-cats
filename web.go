@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 type JsonSenderTopicResponse struct {
@@ -53,6 +54,7 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 
 	id, err := createKittenTask(name, description, []string{fileHeaders.Filename})
 	logChannel <- LogChannel{Message: fmt.Sprintf("New kitten topic with id: %d, name:%s, desc:%s ", id, name, description)}
+	writeToEveryone("Задание на добавление \"" + name + "\" - Принята №" + strconv.Itoa(int(id)))
 
 	data, _ := json.Marshal(JsonSenderTopicResponse{Ok: true, Data: JsonSenderTopicResponseData{TaskId: id}})
 	w.WriteHeader(http.StatusOK)

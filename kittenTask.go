@@ -11,6 +11,14 @@ const statusDone = 3
 const statusDecline = 4
 const statusWithError = 5
 
+var statusMapName = map[int]string{
+	statusNew:        "new",
+	statusInProgress: "in progress",
+	statusDone:       "done",
+	statusDecline:    "decline",
+	statusWithError:  "done with errors",
+}
+
 func KittenTaskHandle() {
 	for {
 		tasks := GetKittenTasks(3, statusNew)

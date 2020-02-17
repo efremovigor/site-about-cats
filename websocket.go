@@ -91,6 +91,10 @@ func runWebSocketProcess() {
 	}
 }
 
+func writeToEveryone(message string) {
+	generalChan <- []byte(message)
+}
+
 func runWebSocketServer() {
 	router := mux.NewRouter()
 	router.HandleFunc("/", WebSocketHandler)

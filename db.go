@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
-	"fmt"
 	_ "github.com/mattn/go-sqlite3"
+	"strconv"
 	"time"
 )
 
@@ -109,11 +109,11 @@ func GetKittenTasks(count int, status int) []KittenTaskDb {
 func updateKittenTask(task KittenTaskDb) {
 	db := getConnectionToDb()
 	defer db.Close()
-	res, err := db.Exec("UPDATE kitten_task SET status=$1, data=$2, modified=$3 where kitten_task_id = $4", task.Status, task.Data, time.Now(), task.KittenTaskId)
-	if err != nil {
+	if _, err := db.Exec("UPDATE kitten_task SET status=$1, data=$2, modified=$3 where kitten_task_id = $4", task.Status, task.Data, time.Now(), task.KittenTaskId); err != nil {
 		logChannel <- LogChannel{Message: err.Error()}
 	}
-	fmt.Println(res)
+	writeToEveryone("Задание №" + strconv.Itoa(task.KittenTaskId) + " получило статус: \"" + statusMapName[task.Status] + "\"")
+
 }
 
 func getKittensCatalog() (kittens []*KittenView) {
