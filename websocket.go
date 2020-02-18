@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -8,18 +9,39 @@ import (
 	"net/http"
 )
 
+const socketMessageText = "info"
+const socketMessageEvent = "event"
+
 var addr = flag.String("addr", socketWebSocket, "http service address")
 
-var generalChan = make(chan []byte)
+var generalChan = make(chan socketMessageInterface)
 
 var upgrader = websocket.Upgrader{}
 var connections = make(map[int]*connectionReceiver)
 
-type connectionReceiver struct {
-	conn         *websocket.Conn
-	readChan     chan []byte
-	writeChan    chan []byte
-	closeConnect chan int
+type (
+	socketMessageInterface interface {
+		getMessage() []byte
+	}
+	socketMessage struct {
+		MessageType string `json:"message_type"`
+		Data        string `json:"data"`
+	}
+	connectionReceiver struct {
+		conn         *websocket.Conn
+		readChan     chan socketMessageInterface
+		writeChan    chan socketMessageInterface
+		closeConnect chan int
+	}
+)
+
+func (message socketMessage) getMessage() []byte {
+	jsonData, _ := json.Marshal(&message)
+	return jsonData
+}
+
+func createSocketMessage(messageType string, text string) socketMessage {
+	return socketMessage{MessageType: messageType, Data: text}
 }
 
 func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +49,7 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
-	receiver := &connectionReceiver{conn: conn, readChan: make(chan []byte), writeChan: make(chan []byte), closeConnect: make(chan int)}
+	receiver := &connectionReceiver{conn: conn, readChan: make(chan socketMessageInterface), writeChan: make(chan socketMessageInterface), closeConnect: make(chan int)}
 	connectionId := len(connections)
 	connections[connectionId] = receiver
 
@@ -45,16 +67,17 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				if string(message) == "general" {
-					generalChan <- []byte("General hello message")
+					generalChan <- createSocketMessage(socketMessageText, "General hello message")
 					continue
 				}
-				receiver.readChan <- message
+				receiver.readChan <- createSocketMessage(socketMessageText, string(message))
 			}
 		}(receiver)
 
 		go func(receiver *connectionReceiver) {
 			for {
-				err := conn.WriteMessage(1, <-receiver.readChan)
+				message := <-receiver.readChan
+				err := conn.WriteMessage(1, message.getMessage())
 				if err != nil {
 					receiver.closeConnect <- 0
 					break
@@ -80,7 +103,7 @@ func runWebSocketProcess() {
 		select {
 		case message := <-generalChan:
 			for key, receiver := range connections {
-				err := receiver.conn.WriteMessage(1, message)
+				err := receiver.conn.WriteMessage(1, message.getMessage())
 				if err != nil {
 					receiver.closeConnect <- 0
 					delete(connections, key)
@@ -92,7 +115,7 @@ func runWebSocketProcess() {
 }
 
 func writeToEveryone(message string) {
-	generalChan <- []byte(message)
+	generalChan <- createSocketMessage(socketMessageText, message)
 }
 
 func runWebSocketServer() {

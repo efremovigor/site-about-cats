@@ -113,7 +113,9 @@ func updateKittenTask(task KittenTaskDb) {
 		logChannel <- LogChannel{Message: err.Error()}
 	}
 	writeToEveryone("Задание №" + strconv.Itoa(task.KittenTaskId) + " получило статус: \"" + statusMapName[task.Status] + "\"")
-
+	if task.Status == statusDone || task.Status == statusWithError {
+		generalChan <- createSocketMessage(socketMessageEvent, "reload_catalog")
+	}
 }
 
 func getKittensCatalog() (kittens []*KittenView) {

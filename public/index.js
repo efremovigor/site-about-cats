@@ -4,6 +4,24 @@
 console.log('js-loaded');
 
 $( document ).ready(function() {
+    let input = document.getElementById("input");
+    let output = document.getElementById("output");
+    let socket = new WebSocket("ws://localhost:9001/");
+
+    socket.onopen = function () {
+        output.innerHTML += "Status: Connected\n";
+    };
+
+    socket.onmessage = function (e) {
+        console.log(e.data);
+        output.innerHTML += "Server: " + e.data + "\n";
+    };
+
+    document.getElementById("buttonSend").onclick = function () {
+        socket.send(input.value);
+        input.value = "";
+    };
+
     $.ajax({
         dataType: "json",
         url: "/api/catalog",
