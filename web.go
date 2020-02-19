@@ -5,17 +5,22 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
 	"html/template"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 )
 
+var store = sessions.NewCookieStore([]byte("my-secret-key"))
+
 type JsonSenderTopicResponse struct {
-	Ok   bool                        `json:"ok"`
-	Data JsonSenderTopicResponseData `json:"data"`
+	Ok       bool                        `json:"ok"`
+	Data     JsonSenderTopicResponseData `json:"data"`
+	UserName string                      `json:"user_name"`
 }
 
 type JsonSenderTopicResponseData struct {
@@ -27,6 +32,11 @@ type KittensCatalogJsonResponse struct {
 }
 
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
+	session, _ := store.Get(r, "super-cookies")
+	session.Values["username"] = "new - " + time.Now().String()
+	http.SetCookie(w, &http.Cookie{Name: "super-puper", Value: session.Values["username"].(string)})
+
+	session.Save(r, w)
 
 	w.WriteHeader(http.StatusOK)
 	tmpl, _ := template.ParseFiles(templatePath + "index.html")
@@ -55,8 +65,9 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 	id, err := createKittenTask(name, description, []string{fileHeaders.Filename})
 	logChannel <- LogChannel{Message: fmt.Sprintf("New kitten topic with id: %d, name:%s, desc:%s ", id, name, description)}
 	writeToEveryone("Задание на добавление \"" + name + "\" - Принята №" + strconv.Itoa(int(id)))
+	session, _ := store.Get(r, "cookie-name")
 
-	data, _ := json.Marshal(JsonSenderTopicResponse{Ok: true, Data: JsonSenderTopicResponseData{TaskId: id}})
+	data, _ := json.Marshal(JsonSenderTopicResponse{Ok: true, Data: JsonSenderTopicResponseData{TaskId: id}, UserName: session.Values["username"].(string)})
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
