@@ -31,6 +31,11 @@ type KittensCatalogJsonResponse struct {
 	Kittens []*KittenView `json:"kittens"`
 }
 
+type LoginJsonRequest struct {
+	Login    string `json:"login"`
+	Password string `json:"password"`
+}
+
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "super-cookies")
 	session.Values["username"] = "new - " + time.Now().String()
@@ -80,7 +85,24 @@ func ApiGetKittens(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
 	fmt.Fprintln(w, string(data))
+}
 
+func ApiLogin(w http.ResponseWriter, r *http.Request) {
+	var request LoginJsonRequest
+	err := json.NewDecoder(r.Body).Decode(&request)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	request.Login = request.Login + "1"
+	request.Password = request.Password + "1"
+
+	w.WriteHeader(http.StatusOK)
+	data, _ := json.Marshal(request)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
+	fmt.Fprintln(w, string(data))
 }
 
 func runWebServer() {
@@ -88,6 +110,7 @@ func runWebServer() {
 	router.HandleFunc("/", IndexHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/topic/send", ApiTopicSender).Methods(http.MethodPost)
 	router.HandleFunc("/api/catalog", ApiGetKittens).Methods(http.MethodGet)
+	router.HandleFunc("/api/login", ApiLogin).Methods(http.MethodPost)
 
 	var dir string
 	flag.StringVar(&dir, "dir", ".", "the directory to serve files from. Defaults to the current dir")
