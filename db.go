@@ -61,7 +61,7 @@ func (data *KittenTaskDbData) Scan(src interface{}) error {
 }
 
 func getConnectionToDb() (db *sql.DB) {
-	db, err := sql.Open("sqlite3", "storage/identifier.sqlite")
+	db, err := sql.Open(Config.Db.TypeDb, Config.Db.Socket)
 	if err != nil {
 		logChannel <- LogChannel{Message: err.Error()}
 	}

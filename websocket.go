@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"log"
@@ -11,8 +10,6 @@ import (
 
 const socketMessageText = "info"
 const socketMessageEvent = "event"
-
-var addr = flag.String("addr", socketWebSocket, "http service address")
 
 var generalChan = make(chan socketMessageInterface)
 
@@ -121,5 +118,5 @@ func writeToEveryone(message string) {
 func runWebSocketServer() {
 	router := mux.NewRouter()
 	router.HandleFunc("/", WebSocketHandler)
-	log.Fatal(http.ListenAndServe(*addr, router))
+	log.Fatal(http.ListenAndServe(Config.getWebSocketTcpSocket(), router))
 }

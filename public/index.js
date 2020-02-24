@@ -22,7 +22,7 @@ $( document ).ready(function() {
     let authId = getCookie("AUTH_SID");
     console.log(authId);
 
-    if(authId !== undefined){
+    // if(authId !== undefined){
         let socket = new WebSocket("ws://localhost:9001/");
 
         socket.onopen = function () {
@@ -38,7 +38,7 @@ $( document ).ready(function() {
             socket.send(input.value);
             input.value = "";
         });
-    }
+    // }
 
 
 

@@ -4,7 +4,6 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
@@ -16,7 +15,7 @@ import (
 	"strconv"
 )
 
-var store = sessions.NewCookieStore([]byte(sessionUniKey))
+var store = sessions.NewCookieStore([]byte(Config.Session.UniKey))
 
 func getSession(r *http.Request) (session *sessions.Session) {
 	session, _ = store.Get(r, sessionUserUniKey)
@@ -55,7 +54,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Access-Control-Allow-Origin", domain)
+	w.Header().Set("Access-Control-Allow-Origin", Config.getWebTcpSocket())
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	tmpl, _ := template.ParseFiles(templatePath + "index.html")
 	if err := tmpl.Execute(w, ""); err != nil {
@@ -122,7 +121,7 @@ func ApiLogin(w http.ResponseWriter, r *http.Request) {
 
 func sendOkResponse(w http.ResponseWriter, data string) {
 	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Access-Control-Allow-Origin", ip+":"+port)
+	w.Header().Set("Access-Control-Allow-Origin", Config.getWebTcpSocket())
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
@@ -136,15 +135,12 @@ func runWebServer() {
 	router.HandleFunc("/api/catalog", ApiGetKittens).Methods(http.MethodGet)
 	router.HandleFunc("/api/login", ApiLogin).Methods(http.MethodPost)
 
-	var dir string
-	flag.StringVar(&dir, "dir", ".", "the directory to serve files from. Defaults to the current dir")
-
-	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(publicPath+http.Dir(dir))))
+	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(publicPath))))
 
 	srv := &http.Server{
 		ReadTimeout:  readTimeoutRequest,
 		WriteTimeout: writeTimeoutRequest,
-		Addr:         socket,
+		Addr:         Config.getWebTcpSocket(),
 		Handler:      router,
 	}
 	log.Fatal(srv.ListenAndServe())

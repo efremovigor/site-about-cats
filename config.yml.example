@@ -1,0 +1,11 @@
+db:
+  type: sqlite3
+  socket: storage/identifier.sqlite
+web:
+  ip: 127.0.0.1
+  port: 9000
+web-socket:
+  ip: 127.0.0.1
+  port: 9001
+session:
+  uni-key: MTU4MjQ0NTc0NnxEdi1CQkFFQ180SU
