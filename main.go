@@ -75,9 +75,10 @@ func (config ConfigFile) getWebSocketTcpSocket() string {
 var Config = getConfig()
 
 func main() {
-	go LoggerHandle()
-	go runWebServer()
-	go runWebSocketProcess()
-	go KittenTaskHandle()
+	go runLoggerHandle()
+	go runWebServerHandler()
+	go runWebSocketHandler()
+	go runKittenTaskHandler()
+	chanToWebServer <- 1
 	select {}
 }

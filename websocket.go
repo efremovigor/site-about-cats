@@ -94,7 +94,7 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func runWebSocketProcess() {
+func runWebSocketHandler() {
 	go runWebSocketServer()
 	for {
 		select {

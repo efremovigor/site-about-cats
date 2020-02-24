@@ -19,7 +19,7 @@ var statusMapName = map[int]string{
 	statusWithError:  "done with errors",
 }
 
-func KittenTaskHandle() {
+func runKittenTaskHandler() {
 	for {
 		tasks := GetKittenTasks(3, statusNew)
 		for _, task := range tasks {

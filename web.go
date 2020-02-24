@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -13,9 +14,17 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
+	"time"
 )
 
+const signalUpServer = 1
+const signalDownServer = 2
+const signalReloadServer = 3
+
 var store = sessions.NewCookieStore([]byte(Config.Session.UniKey))
+var webServer http.Server
+var chanToWebServer = make(chan int)
 
 func getSession(r *http.Request) (session *sessions.Session) {
 	session, _ = store.Get(r, sessionUserUniKey)
@@ -45,6 +54,10 @@ type KittensCatalogJsonResponse struct {
 type LoginJsonRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
+}
+
+type SimpleResponse struct {
+	Success bool `json:"success"`
 }
 
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +115,8 @@ func ApiLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	var data string
+	response := SimpleResponse{}
+
 	if request.Login == adminLogin && request.Password == adminPassword {
 		session.Values["AUTH_SID"] = GetMD5Hash(session.ID + authSalt)
 		if err := session.Save(r, w); err != nil {
@@ -110,13 +124,30 @@ func ApiLogin(w http.ResponseWriter, r *http.Request) {
 		}
 
 		http.SetCookie(w, &http.Cookie{Name: "AUTH_SID", Value: GetMD5Hash(session.ID + authSalt)})
-		data = "{success:true}"
+		response.Success = true
 
 	} else {
-		data = "{success:false}"
+		response.Success = false
 	}
+	data, _ := json.Marshal(response)
+	sendOkResponse(w, string(data))
+}
 
-	sendOkResponse(w, data)
+func ApiGetConfig(w http.ResponseWriter, r *http.Request) {
+	data, _ := json.Marshal(Config)
+	sendOkResponse(w, string(data))
+}
+
+func ApiSetConfig(w http.ResponseWriter, r *http.Request) {
+	json.NewDecoder(r.Body).Decode(&Config)
+	data, _ := json.Marshal(Config)
+	sendOkResponse(w, string(data))
+}
+
+func ApiReloadService(w http.ResponseWriter, r *http.Request) {
+	reloadServer()
+	data, _ := json.Marshal(SimpleResponse{Success: true})
+	sendOkResponse(w, string(data))
 }
 
 func sendOkResponse(w http.ResponseWriter, data string) {
@@ -128,20 +159,53 @@ func sendOkResponse(w http.ResponseWriter, data string) {
 	fmt.Fprintln(w, data)
 }
 
-func runWebServer() {
+func startWebServer(sync *sync.WaitGroup) {
+	defer sync.Done()
+	if err := webServer.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("ListenAndServe(): %v", err)
+	}
+}
+
+func reloadServer() {
+	chanToWebServer <- signalReloadServer
+}
+
+func runWebServerHandler() {
 	router := mux.NewRouter()
 	router.HandleFunc("/", IndexHandler).Methods(http.MethodGet)
 	router.HandleFunc("/api/topic/send", ApiTopicSender).Methods(http.MethodPost)
 	router.HandleFunc("/api/catalog", ApiGetKittens).Methods(http.MethodGet)
 	router.HandleFunc("/api/login", ApiLogin).Methods(http.MethodPost)
-
+	router.HandleFunc("/api/admin/config", ApiGetConfig).Methods(http.MethodGet)
+	router.HandleFunc("/api/admin/config", ApiSetConfig).Methods(http.MethodPost)
+	router.HandleFunc("/api/admin/reload-config", ApiReloadService).Methods(http.MethodPost)
 	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(publicPath))))
 
-	srv := &http.Server{
-		ReadTimeout:  readTimeoutRequest,
-		WriteTimeout: writeTimeoutRequest,
-		Addr:         Config.getWebTcpSocket(),
-		Handler:      router,
+	var group *sync.WaitGroup
+	for {
+		switch <-chanToWebServer {
+		case signalUpServer:
+			webServer = http.Server{
+				ReadTimeout:  readTimeoutRequest,
+				WriteTimeout: writeTimeoutRequest,
+				Addr:         Config.getWebTcpSocket(),
+				Handler:      router,
+			}
+			group = &sync.WaitGroup{}
+			group.Add(1)
+			go startWebServer(group)
+		case signalDownServer:
+			if err := webServer.Shutdown(context.TODO()); err != nil {
+				panic(err)
+			}
+			group.Wait()
+		case signalReloadServer:
+			go func() {
+				time.Sleep(5 * time.Second)
+				chanToWebServer <- signalDownServer
+				chanToWebServer <- signalUpServer
+			}()
+		}
+
 	}
-	log.Fatal(srv.ListenAndServe())
 }

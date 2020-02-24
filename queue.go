@@ -10,7 +10,7 @@ type LogChannel struct {
 	Message string
 }
 
-func LoggerHandle() {
+func runLoggerHandle() {
 	for {
 		select {
 		case task := <-logChannel:
