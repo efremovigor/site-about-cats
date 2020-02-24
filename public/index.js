@@ -3,35 +3,97 @@
 
 console.log('js-loaded');
 
+function getCookie(name) {
+    var value = "; " + document.cookie;
+    var parts = value.split("; " + name + "=");
+    if (parts.length == 2) return parts.pop().split(";").shift();
+}
+
+function setCookie(cname, cvalue, exdays) {
+    var d = new Date();
+    d.setTime(d.getTime() + (exdays*24*60*60*1000));
+    var expires = "expires="+ d.toUTCString();
+    document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+}
+
 $( document ).ready(function() {
     let input = document.getElementById("input");
     let output = document.getElementById("output");
-    let socket = new WebSocket("ws://localhost:9001/");
+    let authId = getCookie("AUTH_SID");
+    console.log(authId);
 
-    socket.onopen = function () {
-        output.innerHTML += "Status: Connected\n";
-    };
+    if(authId !== undefined){
+        let socket = new WebSocket("ws://localhost:9001/");
 
-    socket.onmessage = function (e) {
-        console.log(e.data);
-        output.innerHTML += "Server: " + e.data + "\n";
-    };
+        socket.onopen = function () {
+            output.innerHTML += "Status: Connected\n";
+        };
 
-    document.getElementById("buttonSend").onclick = function () {
-        socket.send(input.value);
-        input.value = "";
-    };
+        socket.onmessage = function (e) {
+            console.log(e.data);
+            output.innerHTML += "Server: " + e.data + "\n";
+        };
+
+        $("#buttonSend").on('click',function () {
+            socket.send(input.value);
+            input.value = "";
+        });
+    }
+
+
+
+    $("#catalog > .show").on('click',function () {
+        $('#catalog .content').toggle();
+    });
+
+    $("#auth > .show").on('click',function () {
+        $('#auth .content').toggle();
+    });
+
+
+    $("#auth > .login").on('click', function () {
+        $.ajax({
+            url: "/api/login",
+            type: 'POST',
+            data: JSON.stringify({login: "admin", password: "adminPassword"}),
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function ( data, textStatus, jqXHR){
+                console.log(data);
+                console.log(jqXHR);
+                $('#auth .content').append(jqXHR.responseText);
+            }
+        });
+
+    });
 
     $.ajax({
         dataType: "json",
         url: "/api/catalog",
-        // data: data,
-        success: function (data){
-            console.log(data)
+        success: function ( data, textStatus, jqXHR){
+            $('#catalog .content').append(jqXHR.responseText);
         }
     });
+
     $( "#form-send-kitten" ).submit(function( event ) {
-        // console.log( "Handler for .submit() called." );
-        // event.preventDefault();
+        var fd = new FormData;
+        fd.append('kittenName', $("#kittenName").val());
+        fd.append('kittenImage', $("#kittenImage").prop('files')[0]);
+
+        $.ajax({
+            url: '/api/topic/send',
+            data: fd,
+            processData: false,
+            contentType: false,
+            type: 'POST',
+            xhrFields: {
+                withCredentials: true
+            },
+            success: function (data) {
+                console.log(data);
+            }
+        });
+        event.preventDefault();
     });
 });

@@ -9,15 +9,19 @@
 <body>
 <h3>Hello kitties</h3>
 <h4>Form of send cute kittens</h4>
-<form id="form-send-kitten" method="post" action="/api/topic/send" enctype="multipart/form-data">
-    <input name="name" type="text" placeholder="Kitten name">
-    <input name="fileupload" type="file" placeholder="Kitten img">
+<form id="form-send-kitten" enctype="multipart/form-data">
+    <input id="kittenName" name="name" type="text" placeholder="Kitten name">
+    <input id="kittenImage" name="fileupload" type="file" placeholder="Kitten img">
     <input type="submit">
 </form>
+<div id="auth">Auth <button class="show">show/hide</button><div class="content"></div><button class="login">Login</button> </div>
+<div id="catalog">Catalog <button class="show">show/hide</button><div class="content"></div></div>
 
-<!-- websockets.html -->
 <input id="input" type="text" />
 <button id="buttonSend">Send</button>
 <pre id="output"></pre>
+
+
+
 </body>
 </html>

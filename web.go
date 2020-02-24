@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,10 +14,20 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 )
 
-var store = sessions.NewCookieStore([]byte("my-secret-key"))
+var store = sessions.NewCookieStore([]byte(sessionUniKey))
+
+func getSession(r *http.Request) (session *sessions.Session) {
+	session, _ = store.Get(r, sessionUserUniKey)
+	return
+}
+
+func GetMD5Hash(text string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(text))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
 
 type JsonSenderTopicResponse struct {
 	Ok       bool                        `json:"ok"`
@@ -37,22 +49,25 @@ type LoginJsonRequest struct {
 }
 
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
-	session, _ := store.Get(r, "super-cookies")
-	session.Values["username"] = "new - " + time.Now().String()
-	http.SetCookie(w, &http.Cookie{Name: "super-puper", Value: session.Values["username"].(string)})
-
-	session.Save(r, w)
+	session := getSession(r)
+	if err := session.Save(r, w); err != nil {
+		logChannel <- LogChannel{Message: "session wasn't save"}
+	}
 
 	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Access-Control-Allow-Origin", domain)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	tmpl, _ := template.ParseFiles(templatePath + "index.html")
-	tmpl.Execute(w, "")
+	if err := tmpl.Execute(w, ""); err != nil {
+		logChannel <- LogChannel{Message: "template error"}
+	}
 }
 
 func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
-	name := r.PostFormValue("name")
-	description := r.PostFormValue("description")
+	name := r.PostFormValue("kittenName")
+	description := r.PostFormValue("kittenDesc")
 
-	file, fileHeaders, err := r.FormFile("fileupload")
+	file, fileHeaders, err := r.FormFile("kittenImage")
 	if err != nil {
 		return
 	}
@@ -70,39 +85,48 @@ func ApiTopicSender(w http.ResponseWriter, r *http.Request) {
 	id, err := createKittenTask(name, description, []string{fileHeaders.Filename})
 	logChannel <- LogChannel{Message: fmt.Sprintf("New kitten topic with id: %d, name:%s, desc:%s ", id, name, description)}
 	writeToEveryone("Задание на добавление \"" + name + "\" - Принята №" + strconv.Itoa(int(id)))
-	session, _ := store.Get(r, "cookie-name")
 
-	data, _ := json.Marshal(JsonSenderTopicResponse{Ok: true, Data: JsonSenderTopicResponseData{TaskId: id}, UserName: session.Values["username"].(string)})
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
-	fmt.Fprintln(w, string(data))
+	data, _ := json.Marshal(JsonSenderTopicResponse{Ok: true, Data: JsonSenderTopicResponseData{TaskId: id}})
+	sendOkResponse(w, string(data))
 }
 
 func ApiGetKittens(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
 	data, _ := json.Marshal(KittensCatalogJsonResponse{Kittens: getKittensCatalog()})
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
-	fmt.Fprintln(w, string(data))
+	sendOkResponse(w, string(data))
 }
 
 func ApiLogin(w http.ResponseWriter, r *http.Request) {
 	var request LoginJsonRequest
+	session := getSession(r)
 	err := json.NewDecoder(r.Body).Decode(&request)
-	if err != nil {
+	if err != nil || session.IsNew == true {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	var data string
+	if request.Login == adminLogin && request.Password == adminPassword {
+		session.Values["AUTH_SID"] = GetMD5Hash(session.ID + authSalt)
+		if err := session.Save(r, w); err != nil {
+			logChannel <- LogChannel{Message: "session wasn't save"}
+		}
 
-	request.Login = request.Login + "1"
-	request.Password = request.Password + "1"
+		http.SetCookie(w, &http.Cookie{Name: "AUTH_SID", Value: GetMD5Hash(session.ID + authSalt)})
+		data = "{success:true}"
 
+	} else {
+		data = "{success:false}"
+	}
+
+	sendOkResponse(w, data)
+}
+
+func sendOkResponse(w http.ResponseWriter, data string) {
 	w.WriteHeader(http.StatusOK)
-	data, _ := json.Marshal(request)
+	w.Header().Set("Access-Control-Allow-Origin", ip+":"+port)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Length", fmt.Sprint(len(string(data))))
-	fmt.Fprintln(w, string(data))
+	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
+	fmt.Fprintln(w, data)
 }
 
 func runWebServer() {
