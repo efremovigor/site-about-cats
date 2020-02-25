@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 const statusNew = 1
@@ -21,15 +23,15 @@ var statusMapName = map[int]string{
 
 func runKittenTaskHandler() {
 	for {
+		time.Sleep(5 * time.Second)
 		tasks := GetKittenTasks(3, statusNew)
 		for _, task := range tasks {
-			logChannel <- LogChannel{Message: "Took " + string(len(tasks)) + " tasks"}
+			logChannel <- LogChannel{Message: fmt.Sprintf("Took %d tasks", len(tasks))}
 			task.Status = statusInProgress
 			updateKittenTask(task)
 			kittenTaskProcess(&task)
 			updateKittenTask(task)
 		}
-
 	}
 }
 

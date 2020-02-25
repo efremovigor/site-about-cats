@@ -1,0 +1,11 @@
+db:
+  type: sqlite3
+  socket: tests/identifier.sqlite
+web:
+  ip: 127.0.0.1
+  port: 9010
+web-socket:
+  ip: 127.0.0.1
+  port: 9011
+session:
+  uni-key: MTU4MjQ0NTc0NnxEdi1CQkFFQ180SU

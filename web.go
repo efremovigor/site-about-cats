@@ -23,8 +23,7 @@ const signalDownServer = 2
 const signalReloadServer = 3
 
 var store = sessions.NewCookieStore([]byte(Config.Session.UniKey))
-var webServer http.Server
-var chanToWebServer = make(chan int)
+var webServerProcess = WebServerProcess{Chan: make(chan int), Host: Config.getWebTcpSocket()}
 
 func getSession(r *http.Request) (session *sessions.Session) {
 	session, _ = store.Get(r, sessionUserUniKey)
@@ -35,6 +34,16 @@ func GetMD5Hash(text string) string {
 	hasher := md5.New()
 	hasher.Write([]byte(text))
 	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+type WebServerProcess struct {
+	Server   http.Server
+	Router   *mux.Router
+	Chan     chan int
+	Group    sync.WaitGroup
+	Host     string
+	RTimeout time.Duration
+	WTimeout time.Duration
 }
 
 type JsonSenderTopicResponse struct {
@@ -141,6 +150,11 @@ func ApiGetConfig(w http.ResponseWriter, r *http.Request) {
 func ApiSetConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&Config)
 	data, _ := json.Marshal(Config)
+	webServerProcess.Host = Config.getWebTcpSocket()
+	logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для web-server - %s", webServerProcess.Host)}
+	webSocketServerProcess.Host = Config.getWebSocketTcpSocket()
+	logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для websocket-server - %s", webSocketServerProcess.Host)}
+
 	sendOkResponse(w, string(data))
 }
 
@@ -159,53 +173,67 @@ func sendOkResponse(w http.ResponseWriter, data string) {
 	fmt.Fprintln(w, data)
 }
 
-func startWebServer(sync *sync.WaitGroup) {
-	defer sync.Done()
-	if err := webServer.ListenAndServe(); err != http.ErrServerClosed {
+func startWebServer(process *WebServerProcess) {
+	defer process.Group.Done()
+	if err := process.Server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("ListenAndServe(): %v", err)
 	}
 }
 
 func reloadServer() {
-	chanToWebServer <- signalReloadServer
+	logChannel <- LogChannel{Message: "Перегружаем web-server"}
+	webServerProcess.Chan <- signalReloadServer
+
+	logChannel <- LogChannel{Message: "Перегружаем websocket-server"}
+	webSocketServerProcess.Chan <- signalReloadServer
 }
 
-func runWebServerHandler() {
-	router := mux.NewRouter()
-	router.HandleFunc("/", IndexHandler).Methods(http.MethodGet)
-	router.HandleFunc("/api/topic/send", ApiTopicSender).Methods(http.MethodPost)
-	router.HandleFunc("/api/catalog", ApiGetKittens).Methods(http.MethodGet)
-	router.HandleFunc("/api/login", ApiLogin).Methods(http.MethodPost)
-	router.HandleFunc("/api/admin/config", ApiGetConfig).Methods(http.MethodGet)
-	router.HandleFunc("/api/admin/config", ApiSetConfig).Methods(http.MethodPost)
-	router.HandleFunc("/api/admin/reload-config", ApiReloadService).Methods(http.MethodPost)
-	router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(publicPath))))
-
-	var group *sync.WaitGroup
+func (process *WebServerProcess) run() {
 	for {
-		switch <-chanToWebServer {
+		switch <-process.Chan {
 		case signalUpServer:
-			webServer = http.Server{
-				ReadTimeout:  readTimeoutRequest,
-				WriteTimeout: writeTimeoutRequest,
-				Addr:         Config.getWebTcpSocket(),
-				Handler:      router,
+			logChannel <- LogChannel{Message: fmt.Sprintf("Start web-server: host %s", process.Host)}
+			process.Server = http.Server{
+				ReadTimeout:  process.RTimeout,
+				WriteTimeout: process.WTimeout,
+				Addr:         process.Host,
+				Handler:      process.Router,
 			}
-			group = &sync.WaitGroup{}
-			group.Add(1)
-			go startWebServer(group)
+			process.Group = sync.WaitGroup{}
+			process.Group.Add(1)
+			go startWebServer(process)
+			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server started(%s)", process.Host)}
+
 		case signalDownServer:
-			if err := webServer.Shutdown(context.TODO()); err != nil {
+			logChannel <- LogChannel{Message: fmt.Sprintf("Stop web-server(%s)", process.Host)}
+			if err := process.Server.Shutdown(context.TODO()); err != nil {
 				panic(err)
 			}
-			group.Wait()
+			process.Group.Wait()
+			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server stoped(%s)", process.Host)}
 		case signalReloadServer:
 			go func() {
 				time.Sleep(5 * time.Second)
-				chanToWebServer <- signalDownServer
-				chanToWebServer <- signalUpServer
+				process.Chan <- signalDownServer
+				process.Chan <- signalUpServer
 			}()
 		}
-
 	}
+}
+
+func runWebServerHandler() {
+	webServerProcess.Router = mux.NewRouter()
+	webServerProcess.Router.HandleFunc("/", IndexHandler).Methods(http.MethodGet)
+	webServerProcess.Router.HandleFunc("/api/topic/send", ApiTopicSender).Methods(http.MethodPost)
+	webServerProcess.Router.HandleFunc("/api/catalog", ApiGetKittens).Methods(http.MethodGet)
+	webServerProcess.Router.HandleFunc("/api/login", ApiLogin).Methods(http.MethodPost)
+	webServerProcess.Router.HandleFunc("/api/admin/config", ApiGetConfig).Methods(http.MethodGet)
+	webServerProcess.Router.HandleFunc("/api/admin/config", ApiSetConfig).Methods(http.MethodPost)
+	webServerProcess.Router.HandleFunc("/api/admin/reload-config", ApiReloadService).Methods(http.MethodPost)
+	webServerProcess.Router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir(publicPath))))
+
+	webServerProcess.RTimeout = readTimeoutRequest
+	webServerProcess.WTimeout = writeTimeoutRequest
+
+	webServerProcess.run()
 }

@@ -79,6 +79,7 @@ func main() {
 	go runWebServerHandler()
 	go runWebSocketHandler()
 	go runKittenTaskHandler()
-	chanToWebServer <- 1
+	webServerProcess.Chan <- signalUpServer
+	webSocketServerProcess.Chan <- signalUpServer
 	select {}
 }
