@@ -241,13 +241,8 @@ func (process *WebServerProcess) run() {
 		case signalReloadServer:
 			go func() {
 				time.Sleep(5 * time.Second)
-				process.Chan <- signalUpServer
-				switch <-process.ReloadChan {
-				case signalUpServer:
-
-				}
 				process.Chan <- signalDownServer
-
+				process.Chan <- signalUpServer
 			}()
 		}
 	}
