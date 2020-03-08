@@ -15,7 +15,7 @@ var generalChan = make(chan socketMessageInterface)
 
 var upgrader = websocket.Upgrader{}
 var connections = make(map[int]*connectionReceiver)
-var webSocketServerProcess = WebServerProcess{Chan: make(chan int), Host: Config.getWebSocketTcpSocket()}
+var webSocketServerProcess = WebServerProcess{Chan: make(chan int), Host: Config.current.getWebSocketTcpSocket()}
 
 type (
 	socketMessageInterface interface {

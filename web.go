@@ -22,8 +22,8 @@ const signalUpServer = 1
 const signalDownServer = 2
 const signalReloadServer = 3
 
-var store = sessions.NewCookieStore([]byte(Config.Session.UniKey))
-var webServerProcess = WebServerProcess{Chan: make(chan int), Host: Config.getWebTcpSocket()}
+var store = sessions.NewCookieStore([]byte(Config.current.Session.UniKey))
+var webServerProcess = WebServerProcess{Chan: make(chan int), Host: Config.current.getWebTcpSocket()}
 
 func getSession(r *http.Request) (session *sessions.Session) {
 	session, _ = store.Get(r, sessionUserUniKey)
@@ -37,13 +37,23 @@ func GetMD5Hash(text string) string {
 }
 
 type WebServerProcess struct {
-	Server   http.Server
-	Router   *mux.Router
-	Chan     chan int
-	Group    sync.WaitGroup
-	Host     string
-	RTimeout time.Duration
-	WTimeout time.Duration
+	Server     http.Server
+	Router     *mux.Router
+	Chan       chan int
+	Group      sync.WaitGroup
+	Host       string
+	StartHost  string
+	RTimeout   time.Duration
+	WTimeout   time.Duration
+	NeedReload bool
+	ReloadChan chan int
+}
+
+type WebServerInstance struct {
+	Server http.Server
+	Chan   chan int
+	Group  sync.WaitGroup
+	Host   string
 }
 
 type JsonSenderTopicResponse struct {
@@ -76,7 +86,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Access-Control-Allow-Origin", Config.getWebTcpSocket())
+	w.Header().Set("Access-Control-Allow-Origin", Config.current.getWebTcpSocket())
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	tmpl, _ := template.ParseFiles(templatePath + "index.html")
 	if err := tmpl.Execute(w, ""); err != nil {
@@ -148,12 +158,20 @@ func ApiGetConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApiSetConfig(w http.ResponseWriter, r *http.Request) {
-	json.NewDecoder(r.Body).Decode(&Config)
-	data, _ := json.Marshal(Config)
-	webServerProcess.Host = Config.getWebTcpSocket()
-	logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для web-server - %s", webServerProcess.Host)}
-	webSocketServerProcess.Host = Config.getWebSocketTcpSocket()
-	logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для websocket-server - %s", webSocketServerProcess.Host)}
+	json.NewDecoder(r.Body).Decode(&Config.new)
+	if Config.current.Web.Ip != Config.new.Web.Ip || Config.current.Web.Port != Config.new.Web.Port {
+		webServerProcess.Host = Config.new.getWebTcpSocket()
+		webServerProcess.NeedReload = true
+		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для web-server - %s", webServerProcess.Host)}
+	}
+
+	if Config.current.WebSocket.Ip != Config.new.WebSocket.Ip || Config.current.WebSocket.Port != Config.new.WebSocket.Port {
+		webSocketServerProcess.Host = Config.new.getWebSocketTcpSocket()
+		webSocketServerProcess.NeedReload = true
+		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для websocket-server - %s", webSocketServerProcess.Host)}
+	}
+
+	data, _ := json.Marshal(Config.new)
 
 	sendOkResponse(w, string(data))
 }
@@ -166,7 +184,7 @@ func ApiReloadService(w http.ResponseWriter, r *http.Request) {
 
 func sendOkResponse(w http.ResponseWriter, data string) {
 	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Access-Control-Allow-Origin", Config.getWebTcpSocket())
+	w.Header().Set("Access-Control-Allow-Origin", Config.current.getWebTcpSocket())
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
@@ -181,11 +199,19 @@ func startWebServer(process *WebServerProcess) {
 }
 
 func reloadServer() {
-	logChannel <- LogChannel{Message: "Перегружаем web-server"}
-	webServerProcess.Chan <- signalReloadServer
+	Config.switchConfig()
 
-	logChannel <- LogChannel{Message: "Перегружаем websocket-server"}
-	webSocketServerProcess.Chan <- signalReloadServer
+	if webServerProcess.NeedReload {
+		logChannel <- LogChannel{Message: "Перегружаем web-server"}
+		webServerProcess.Chan <- signalReloadServer
+		webServerProcess.NeedReload = false
+	}
+
+	if webSocketServerProcess.NeedReload {
+		logChannel <- LogChannel{Message: "Перегружаем websocket-server"}
+		webSocketServerProcess.Chan <- signalReloadServer
+		webSocketServerProcess.NeedReload = false
+	}
 }
 
 func (process *WebServerProcess) run() {
@@ -199,23 +225,29 @@ func (process *WebServerProcess) run() {
 				Addr:         process.Host,
 				Handler:      process.Router,
 			}
+			process.StartHost = process.Host
 			process.Group = sync.WaitGroup{}
 			process.Group.Add(1)
 			go startWebServer(process)
 			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server started(%s)", process.Host)}
 
 		case signalDownServer:
-			logChannel <- LogChannel{Message: fmt.Sprintf("Stop web-server(%s)", process.Host)}
+			logChannel <- LogChannel{Message: fmt.Sprintf("Stop web-server(%s)", process.StartHost)}
 			if err := process.Server.Shutdown(context.TODO()); err != nil {
 				panic(err)
 			}
 			process.Group.Wait()
-			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server stoped(%s)", process.Host)}
+			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server stoped(%s)", process.StartHost)}
 		case signalReloadServer:
 			go func() {
 				time.Sleep(5 * time.Second)
-				process.Chan <- signalDownServer
 				process.Chan <- signalUpServer
+				switch <-process.ReloadChan {
+				case signalUpServer:
+
+				}
+				process.Chan <- signalDownServer
+
 			}()
 		}
 	}

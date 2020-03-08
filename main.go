@@ -23,6 +23,16 @@ const adminLogin = "admin"
 const adminPassword = "adminPassword"
 const authSalt = "anySalt"
 
+type ConfigManager struct {
+	current ConfigFile
+	new     ConfigFile
+}
+
+func (config *ConfigManager) switchConfig() {
+	config.current = config.new
+	config.new = ConfigFile{}
+}
+
 type ConfigFile struct {
 	Db struct {
 		TypeDb string `yaml:"type",json:"type"`
@@ -41,7 +51,7 @@ type ConfigFile struct {
 	} `yaml:"session",json:"session"`
 }
 
-func getConfig() (configFile ConfigFile) {
+func getConfigFromFile() (configFile ConfigFile) {
 	var data []byte
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		data = readConfigFile(defaultConfigPath)
@@ -72,7 +82,7 @@ func (config ConfigFile) getWebSocketTcpSocket() string {
 	return config.WebSocket.Ip + ":" + config.WebSocket.Port
 }
 
-var Config = getConfig()
+var Config = ConfigManager{current: getConfigFromFile()}
 
 func main() {
 	go runLoggerHandle()
