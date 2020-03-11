@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -23,7 +24,7 @@ const signalDownServer = 2
 const signalReloadServer = 3
 
 var store = sessions.NewCookieStore([]byte(Config.current.Session.UniKey))
-var webServerProcess = WebServerProcess{Chan: make(chan int), Host: Config.current.getWebTcpSocket()}
+var webServerProcess = WebServerProcess{ReloadChan: make(chan int)}
 
 func getSession(r *http.Request) (session *sessions.Session) {
 	session, _ = store.Get(r, sessionUserUniKey)
@@ -37,12 +38,9 @@ func GetMD5Hash(text string) string {
 }
 
 type WebServerProcess struct {
-	Server     http.Server
+	Current    WebServerInstance
+	New        WebServerInstance
 	Router     *mux.Router
-	Chan       chan int
-	Group      sync.WaitGroup
-	Host       string
-	StartHost  string
 	RTimeout   time.Duration
 	WTimeout   time.Duration
 	NeedReload bool
@@ -160,15 +158,15 @@ func ApiGetConfig(w http.ResponseWriter, r *http.Request) {
 func ApiSetConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&Config.new)
 	if Config.current.Web.Ip != Config.new.Web.Ip || Config.current.Web.Port != Config.new.Web.Port {
-		webServerProcess.Host = Config.new.getWebTcpSocket()
+		webServerProcess.New.Host = Config.new.getWebTcpSocket()
 		webServerProcess.NeedReload = true
-		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для web-server - %s", webServerProcess.Host)}
+		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для web-server - %s", webServerProcess.New.Host)}
 	}
 
 	if Config.current.WebSocket.Ip != Config.new.WebSocket.Ip || Config.current.WebSocket.Port != Config.new.WebSocket.Port {
-		webSocketServerProcess.Host = Config.new.getWebSocketTcpSocket()
+		webSocketServerProcess.New.Host = Config.new.getWebSocketTcpSocket()
 		webSocketServerProcess.NeedReload = true
-		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для websocket-server - %s", webSocketServerProcess.Host)}
+		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для websocket-server - %s", webSocketServerProcess.New.Host)}
 	}
 
 	data, _ := json.Marshal(Config.new)
@@ -191,9 +189,9 @@ func sendOkResponse(w http.ResponseWriter, data string) {
 	fmt.Fprintln(w, data)
 }
 
-func startWebServer(process *WebServerProcess) {
-	defer process.Group.Done()
-	if err := process.Server.ListenAndServe(); err != http.ErrServerClosed {
+func startWebServer(instance *WebServerInstance) {
+	defer instance.Group.Done()
+	if err := instance.Server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("ListenAndServe(): %v", err)
 	}
 }
@@ -203,49 +201,73 @@ func reloadServer() {
 
 	if webServerProcess.NeedReload {
 		logChannel <- LogChannel{Message: "Перегружаем web-server"}
-		webServerProcess.Chan <- signalReloadServer
+		webServerProcess.ReloadChan <- signalReloadServer
 		webServerProcess.NeedReload = false
 	}
 
 	if webSocketServerProcess.NeedReload {
 		logChannel <- LogChannel{Message: "Перегружаем websocket-server"}
-		webSocketServerProcess.Chan <- signalReloadServer
+		webSocketServerProcess.ReloadChan <- signalReloadServer
 		webSocketServerProcess.NeedReload = false
 	}
 }
 
 func (process *WebServerProcess) run() {
-	for {
-		switch <-process.Chan {
-		case signalUpServer:
-			logChannel <- LogChannel{Message: fmt.Sprintf("Start web-server: host %s", process.Host)}
-			process.Server = http.Server{
-				ReadTimeout:  process.RTimeout,
-				WriteTimeout: process.WTimeout,
-				Addr:         process.Host,
-				Handler:      process.Router,
+	go process.Current.run()
+	go func(process *WebServerProcess) {
+		for {
+			<-process.ReloadChan
+			time.Sleep(2 * time.Second)
+			if _, err := net.DialTimeout("tcp", process.New.Host, time.Second); err == nil {
+				logChannel <- LogChannel{Message: fmt.Sprintf("Socket error - %s", err)}
+				return
 			}
-			process.StartHost = process.Host
-			process.Group = sync.WaitGroup{}
-			process.Group.Add(1)
-			go startWebServer(process)
-			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server started(%s)", process.Host)}
+			process.New = createNewWebInstance(*process, process.New.Host)
+			go process.New.run()
+			process.New.Chan <- signalUpServer
+			time.Sleep(2 * time.Second)
 
+			process.Current.Chan <- signalDownServer
+			time.Sleep(2 * time.Second)
+
+			process.Current, process.New = process.New, WebServerInstance{}
+		}
+	}(process)
+	process.Current.Chan <- signalUpServer
+}
+
+func (instance *WebServerInstance) run() {
+	for {
+		switch <-instance.Chan {
+		case signalUpServer:
+			logChannel <- LogChannel{Message: fmt.Sprintf("Start web-server: host %s", instance.Host)}
+			instance.Group = sync.WaitGroup{}
+			instance.Group.Add(1)
+			go startWebServer(instance)
+			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server started(%s)", instance.Host)}
 		case signalDownServer:
-			logChannel <- LogChannel{Message: fmt.Sprintf("Stop web-server(%s)", process.StartHost)}
-			if err := process.Server.Shutdown(context.TODO()); err != nil {
+			logChannel <- LogChannel{Message: fmt.Sprintf("Stop web-server(%s)", instance.Host)}
+			if err := instance.Server.Shutdown(context.TODO()); err != nil {
 				panic(err)
 			}
-			process.Group.Wait()
-			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server stoped(%s)", process.StartHost)}
-		case signalReloadServer:
-			go func() {
-				time.Sleep(5 * time.Second)
-				process.Chan <- signalDownServer
-				process.Chan <- signalUpServer
-			}()
+			instance.Group.Wait()
+			logChannel <- LogChannel{Message: fmt.Sprintf("Web-server stoped(%s)", instance.Host)}
+			return
 		}
 	}
+}
+
+func createNewWebInstance(process WebServerProcess, host string) (instance WebServerInstance) {
+
+	instance = WebServerInstance{Chan: make(chan int), Host: host}
+
+	instance.Server = http.Server{
+		ReadTimeout:  process.RTimeout,
+		WriteTimeout: process.WTimeout,
+		Addr:         host,
+		Handler:      process.Router,
+	}
+	return
 }
 
 func runWebServerHandler() {
@@ -261,6 +283,8 @@ func runWebServerHandler() {
 
 	webServerProcess.RTimeout = readTimeoutRequest
 	webServerProcess.WTimeout = writeTimeoutRequest
+
+	webServerProcess.Current = createNewWebInstance(webServerProcess, Config.current.getWebTcpSocket())
 
 	webServerProcess.run()
 }

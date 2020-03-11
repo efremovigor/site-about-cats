@@ -15,7 +15,7 @@ var generalChan = make(chan socketMessageInterface)
 
 var upgrader = websocket.Upgrader{}
 var connections = make(map[int]*connectionReceiver)
-var webSocketServerProcess = WebServerProcess{Chan: make(chan int), Host: Config.current.getWebSocketTcpSocket()}
+var webSocketServerProcess = WebServerProcess{ReloadChan: make(chan int)}
 
 type (
 	socketMessageInterface interface {
@@ -119,5 +119,6 @@ func writeToEveryone(message string) {
 func runWebSocketServer() {
 	webSocketServerProcess.Router = mux.NewRouter()
 	webSocketServerProcess.Router.HandleFunc("/", WebSocketHandler)
+	webSocketServerProcess.Current = createNewWebInstance(webSocketServerProcess, Config.current.getWebSocketTcpSocket())
 	webSocketServerProcess.run()
 }
