@@ -38,9 +38,9 @@ func GetMD5Hash(text string) string {
 }
 
 type WebServerProcess struct {
-	Current    WebServerInstance
-	New        WebServerInstance
-	Router     *mux.Router
+	Current    *WebServerInstance
+	New        *WebServerInstance
+	Router     mux.Router
 	RTimeout   time.Duration
 	WTimeout   time.Duration
 	NeedReload bool
@@ -158,13 +158,13 @@ func ApiGetConfig(w http.ResponseWriter, r *http.Request) {
 func ApiSetConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&Config.new)
 	if Config.current.Web.Ip != Config.new.Web.Ip || Config.current.Web.Port != Config.new.Web.Port {
-		webServerProcess.New.Host = Config.new.getWebTcpSocket()
+		webServerProcess.New = createNewWebInstance(webServerProcess, Config.new.getWebTcpSocket())
 		webServerProcess.NeedReload = true
 		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для web-server - %s", webServerProcess.New.Host)}
 	}
 
 	if Config.current.WebSocket.Ip != Config.new.WebSocket.Ip || Config.current.WebSocket.Port != Config.new.WebSocket.Port {
-		webSocketServerProcess.New.Host = Config.new.getWebSocketTcpSocket()
+		webSocketServerProcess.New = createNewWebInstance(webServerProcess, Config.new.getWebSocketTcpSocket())
 		webSocketServerProcess.NeedReload = true
 		logChannel <- LogChannel{Message: fmt.Sprintf("Назначен новый адресс для websocket-server - %s", webSocketServerProcess.New.Host)}
 	}
@@ -229,8 +229,8 @@ func (process *WebServerProcess) run() {
 
 			process.Current.Chan <- signalDownServer
 			time.Sleep(2 * time.Second)
-
-			process.Current, process.New = process.New, WebServerInstance{}
+			process.Current = process.New
+			process.New = &WebServerInstance{}
 		}
 	}(process)
 	process.Current.Chan <- signalUpServer
@@ -257,22 +257,22 @@ func (instance *WebServerInstance) run() {
 	}
 }
 
-func createNewWebInstance(process WebServerProcess, host string) (instance WebServerInstance) {
+func createNewWebInstance(process WebServerProcess, host string) (instance *WebServerInstance) {
 
-	instance = WebServerInstance{Chan: make(chan int), Host: host}
+	instance = &WebServerInstance{Chan: make(chan int), Host: host}
 
 	instance.Server = http.Server{
 		ReadTimeout:  process.RTimeout,
 		WriteTimeout: process.WTimeout,
 		Addr:         host,
-		Handler:      process.Router,
+		Handler:      &process.Router,
 	}
 	return
 }
 
 func runWebServerHandler() {
-	webServerProcess.Router = mux.NewRouter()
-	webServerProcess.Router.HandleFunc("/", IndexHandler).Methods(http.MethodGet)
+	webServerProcess.Router = *mux.NewRouter()
+	webServerProcess.Router.HandleFunc("/", IndexHandler).Methods(http.MethodGet).Name("qwe")
 	webServerProcess.Router.HandleFunc("/api/topic/send", ApiTopicSender).Methods(http.MethodPost)
 	webServerProcess.Router.HandleFunc("/api/catalog", ApiGetKittens).Methods(http.MethodGet)
 	webServerProcess.Router.HandleFunc("/api/login", ApiLogin).Methods(http.MethodPost)

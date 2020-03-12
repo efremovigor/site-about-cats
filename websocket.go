@@ -117,7 +117,7 @@ func writeToEveryone(message string) {
 }
 
 func runWebSocketServer() {
-	webSocketServerProcess.Router = mux.NewRouter()
+	webSocketServerProcess.Router = *mux.NewRouter()
 	webSocketServerProcess.Router.HandleFunc("/", WebSocketHandler)
 	webSocketServerProcess.Current = createNewWebInstance(webSocketServerProcess, Config.current.getWebSocketTcpSocket())
 	webSocketServerProcess.run()
